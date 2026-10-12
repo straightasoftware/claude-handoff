@@ -13,18 +13,28 @@ set -euo pipefail
 config="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 id="${1:?usage: handoff-report <old-session-id>}"
 
-old=""
-for f in "$config"/projects/*/"$id"*.jsonl; do [ -e "$f" ] && old="$f"; done
-[ -n "$old" ] || { echo "handoff-report: no transcript for $id" >&2; exit 1; }
+matches=()
+for f in "$config"/projects/*/"$id"*.jsonl; do [ -e "$f" ] && matches+=("$f"); done
+if [ "${#matches[@]}" -ne 1 ]; then
+  echo "handoff-report: ${#matches[@]} transcripts match '$id'" >&2
+  [ "${#matches[@]}" -gt 1 ] && printf '  %s\n' "${matches[@]}" >&2
+  exit 1
+fi
+old="${matches[0]}"
 sid="$(basename "$old" .jsonl)"
 
 # The new session is the one whose first prompt names the old one.
 new="$(grep -l "written from session $sid" "$config"/projects/*/*.jsonl 2>/dev/null | grep -v "/$sid.jsonl" | head -1 || true)"
 usage_file="$config/handoffs/$sid.usage.json"
 
-usage='[.[] | select(.type == "assistant" and (.isSidechain | not) and .message.usage)
-        | .message as $m | {id: ($m.id // ""), u: $m.usage}]
-       | unique_by(.id) | map(.u)'
+# One entry per request, in transcript order. unique_by would sort by message
+# id, which is not time order, so "last" would no longer be the final request.
+usage='reduce (.[] | select(.type == "assistant" and (.isSidechain | not) and .message.usage)) as $r
+         ({seen: {}, out: []};
+          ($r.message.id // "") as $id
+          | if $id != "" and .seen[$id] then .
+            else .seen[$id] = true | .out += [$r.message.usage] end)
+       | .out'
 
 jq -rs --slurpfile hand <( [ -f "$usage_file" ] && cat "$usage_file" || echo null ) \
        --slurpfile newt <( [ -n "$new" ] && jq -s . "$new" || echo '[]' ) "

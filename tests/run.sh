@@ -73,6 +73,30 @@ expect "report measures the new session, counting each request once" \
 expect "report models resuming as the old context written once, then read" \
   "$([ "$(jq -c .resume_instead <<<"$report")" = '{"cache_write":1070,"cache_read":1050,"uncached_input":4,"output":11}' ] && echo yes)"
 
+# The final context is the chronologically last request, whatever its id:
+# message ids do not sort in time order.
+mkdir -p "$scratch/config/projects/c"
+cat > "$scratch/config/projects/c/55555555-eeee.jsonl" <<'ORDER'
+{"type":"assistant","message":{"id":"msg_z","usage":{"input_tokens":100,"output_tokens":1}}}
+{"type":"assistant","message":{"id":"msg_a","usage":{"input_tokens":900,"output_tokens":1}}}
+ORDER
+expect "report takes the final context from the last request in time order" \
+  "$([ "$(CLAUDE_CONFIG_DIR="$scratch/config" "$PWD/../skills/handoff-from/scripts/handoff-report" 5555 2>/dev/null | jq .old_final_context)" = 900 ] && echo yes)"
+
+# An ambiguous prefix must be refused, not resolved to whichever file globs last.
+cp "$scratch/config/projects/c/55555555-eeee.jsonl" "$scratch/config/projects/c/55555555-ffff.jsonl"
+expect "report refuses an ambiguous session prefix" \
+  "$(CLAUDE_CONFIG_DIR="$scratch/config" "$PWD/../skills/handoff-from/scripts/handoff-report" 5555 >/dev/null 2>&1 || echo yes)"
+
+# Listing stops after 15 sessions; with many transcripts that must not kill the
+# producer and fail the script (SIGPIPE under pipefail).
+mkdir -p "$scratch/many/projects/a"
+for i in $(seq 1000); do
+  printf '{"type":"user","cwd":"%s","message":{"content":"hello"}}\n' "$work" > "$scratch/many/projects/a/$i-x.jsonl"
+done
+expect "listing works with a thousand transcripts" \
+  "$( (cd "$work" && CLAUDE_CONFIG_DIR="$scratch/many" "$script" --list >/dev/null 2>&1) && echo yes)"
+
 # Shell wrapper routing, in bash and in zsh when present.
 for sh in bash zsh; do
   command -v "$sh" >/dev/null || continue

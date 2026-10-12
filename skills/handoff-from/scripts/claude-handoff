@@ -43,8 +43,13 @@ done
 # Reads only the lines it needs, so listing stays fast on large transcripts.
 recent_sessions() {
   local f cwd when prompt n=0
-  # ls -t sorts by modification time on both macOS and Linux.
-  ls -t "$config"/projects/*/*.jsonl 2>/dev/null | while IFS= read -r f; do
+  # ls -t sorts by modification time on both macOS and Linux. Its output is
+  # captured first rather than piped: the loop stops after 15 sessions, and
+  # closing a pipe early kills ls with SIGPIPE, which pipefail makes fatal.
+  local files
+  files="$(ls -t "$config"/projects/*/*.jsonl 2>/dev/null || true)"
+  [ -n "$files" ] || return 0
+  while IFS= read -r f; do
     cwd="$(grep -m1 '"cwd"' "$f" | jq -r '.cwd // empty' 2>/dev/null || true)"
     [ "$all" -eq 1 ] || [ "$cwd" = "$PWD" ] || continue
     when="$(date -r "$f" '+%Y-%m-%d %H:%M')"
@@ -54,7 +59,7 @@ recent_sessions() {
       | gsub("\\s+"; " ") | select(length > 0 and (startswith("<") | not)) | .[0:70]' 2>/dev/null | tail -1)"
     printf '%s\t%s\t%s\t%s\n' "$(basename "$f" .jsonl)" "$when" "${cwd/#$HOME/~}" "$prompt"
     n=$((n + 1)); [ "$n" -lt 15 ] || break
-  done
+  done <<< "$files"
 }
 
 if [ "$list" -eq 1 ] || [ -z "$id" ]; then
