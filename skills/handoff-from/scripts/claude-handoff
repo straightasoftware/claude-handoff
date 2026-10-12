@@ -1,0 +1,68 @@
+#!/bin/bash
+# Start a fresh Claude Code session from a digest of an old one, instead of
+# resuming it. Resuming a large session after its prompt cache has expired
+# (1 hour) re-sends the whole context at cache-write price; the digest of
+# prompts and final replies is typically 4-15% of the peak context.
+#
+#   claude-handoff <session-id> [--no-launch] [extra claude args...]
+#
+# Env: HANDOFF_MODEL (default sonnet) writes the handoff;
+#      HANDOFF_MAX_BYTES (default 160000, about 40k tokens) caps the digest.
+set -euo pipefail
+
+here="$(cd "$(dirname "$0")" && pwd)"
+config="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+model="${HANDOFF_MODEL:-sonnet}"
+max="${HANDOFF_MAX_BYTES:-160000}"
+launch=1
+id=""
+pass=()
+for a in "$@"; do
+  case "$a" in
+    --no-launch) launch=0 ;;
+    *) if [ -z "$id" ]; then id="$a"; else pass+=("$a"); fi ;;
+  esac
+done
+[ -n "$id" ] || { echo "usage: claude-handoff <session-id> [--no-launch] [claude args...]" >&2; exit 2; }
+
+# Accept a unique prefix of the ID, as typed from a --resume listing.
+matches=()
+for f in "$config"/projects/*/"$id"*.jsonl; do [ -e "$f" ] && matches+=("$f"); done
+if [ "${#matches[@]}" -ne 1 ]; then
+  echo "claude-handoff: ${#matches[@]} transcripts match '$id'" >&2
+  [ "${#matches[@]}" -gt 1 ] && printf '  %s\n' "${matches[@]}" >&2
+  exit 1
+fi
+transcript="${matches[0]}"
+sid="$(basename "$transcript" .jsonl)"
+cwd="$(jq -r 'select(.cwd) | .cwd' "$transcript" | tail -1)"
+mkdir -p "$config/handoffs"
+out="$config/handoffs/$sid.md"
+
+digest="$(jq -rs --argjson max "$max" -f "$here/handoff-digest.jq" "$transcript")"
+edited="$(jq -r 'select(.type == "assistant" and (.isSidechain | not)) | .message.content[]?
+  | select(.type == "tool_use" and (.name == "Edit" or .name == "Write" or .name == "NotebookEdit"))
+  | .input.file_path // .input.notebook_path' "$transcript" | sort -u)"
+git=""
+if [ -d "$cwd" ] && git -C "$cwd" rev-parse --git-dir >/dev/null 2>&1; then
+  git="$(git -C "$cwd" status --short --branch 2>&1 | head -40; echo; git -C "$cwd" log --oneline -10 2>&1)"
+fi
+
+system='You write handoff notes so a fresh Claude Code session can continue work from an earlier one. You get a digest of the earlier session (the user prompts and the assistant final reply to each), the files it edited, and the current git state. Write Markdown with these sections: Goal; Current state (what is done, what is verified, what is in progress); Decisions and why (include what was rejected); Open questions and blockers; Next steps (concrete and ordered); Key files. Prefer the later parts of the digest where they supersede earlier ones. Keep exact identifiers: paths, branch names, PR numbers, commands, error text. Say nothing about the digest itself. Do not invent anything the digest does not support; mark uncertainty. Aim for under 1500 words.'
+
+input="$(printf 'Session %s, working directory %s\n\n## Files edited\n%s\n\n## Git state now\n%s\n\n## Conversation digest\n%s\n' \
+  "$sid" "$cwd" "${edited:-none}" "${git:-not a git repository}" "$digest")"
+
+echo "claude-handoff: digest $(printf %s "$digest" | wc -c | tr -d ' ') bytes; writing handoff with $model..." >&2
+# Run outside any project so no project CLAUDE.md is loaded, with no tools or
+# MCP servers, so the call carries little beyond the digest itself.
+json="$(cd "${TMPDIR:-/tmp}" && printf %s "$input" | claude -p --model "$model" --tools "" \
+  --strict-mcp-config --no-session-persistence --system-prompt "$system" --output-format json)"
+printf %s "$json" | jq -r '.result' > "$out"
+printf %s "$json" | jq -r '"claude-handoff: \(.usage.input_tokens + (.usage.cache_creation_input_tokens // 0) + (.usage.cache_read_input_tokens // 0)) input tokens, \(.usage.output_tokens) output, $\(.total_cost_usd // "?") API-equivalent"' >&2
+echo "claude-handoff: wrote $out" >&2
+
+if [ "$launch" -eq 1 ]; then
+  cd "$cwd"
+  exec claude ${pass[@]+"${pass[@]}"} "Continue the work described in the handoff at $out (written from session $sid). Read it, check it against the repository where it matters, then summarise where things stand in a few lines and wait for me."
+fi

@@ -1,0 +1,7 @@
+USER: Fix the login bug
+
+CLAUDE: Fixed: the session cookie was not set.
+
+USER: Now add a test
+
+CLAUDE: Added test/auth_test.rb.

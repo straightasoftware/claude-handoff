@@ -1,0 +1,5 @@
+USER: Fix the login bug
+
+[... earlier exchanges omitted to fit the digest budget ...]
+
+CLAUDE: Added test/auth_test.rb.

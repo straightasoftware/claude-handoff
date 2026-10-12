@@ -1,0 +1,9 @@
+{
+  "name": "handoff",
+  "version": "1.0.0",
+  "description": "Continue from an earlier Claude Code session without resuming it: a cheap handoff built from the session transcript",
+  "author": { "name": "Straight A Software" },
+  "repository": "https://github.com/straightasoftware/claude-handoff",
+  "license": "MIT",
+  "keywords": ["handoff", "context", "session", "tokens", "prompt-cache"]
+}

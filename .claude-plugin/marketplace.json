@@ -1,0 +1,17 @@
+{
+  "name": "claude-handoff",
+  "owner": { "name": "Straight A Software" },
+  "metadata": {
+    "description": "Session handoff for Claude Code",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "handoff",
+      "description": "Continue from an earlier Claude Code session without resuming it: a cheap handoff built from the session transcript",
+      "author": { "name": "Straight A Software" },
+      "homepage": "https://github.com/straightasoftware/claude-handoff",
+      "source": "./"
+    }
+  ]
+}
