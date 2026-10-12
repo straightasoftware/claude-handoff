@@ -11,4 +11,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # The shell wrapper must work in zsh as well as bash; Ubuntu runners lack zsh.
+      - run: sudo apt-get update -q && sudo apt-get install -y -q zsh
       - run: tests/run.sh
