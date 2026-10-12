@@ -48,8 +48,13 @@ small stays cheaper for as long as it runs.
 How big the digest is relative to the session varies with how much of the work
 happened in tool output. Across three large sessions (peak contexts of 675k
 to 898k tokens) the digest of prompts and final replies came to 4–15% of the
-peak context. These are a few measurements, not a guarantee; the
-`claude-handoff` output prints the actual token count for each run.
+peak context. These are a few measurements, not a guarantee. To measure
+your own, run `handoff-report <old-session-id>` (in
+`skills/handoff-from/scripts/`) after working in the new session for a while.
+It reads the token counts recorded in the transcripts and shows the handoff
+call, the new session, and what resuming would have cost for the same
+requests: the old context written to the cache once, then re-read on every
+later request.
 
 ## Install
 

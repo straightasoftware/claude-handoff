@@ -1,0 +1,53 @@
+#!/bin/bash
+# Compares what a handoff actually cost with what resuming the old session
+# would have cost, from the token counts recorded in the transcripts.
+#
+#   handoff-report <old-session-id>
+#
+# Resuming is modelled as: the old session's final context written to the
+# cache on the first request (its cache has expired, or a handoff would not
+# be worth it), then read from cache on every later request, on top of what
+# the new work adds. The new session's own requests are measured, not modelled.
+set -euo pipefail
+
+config="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+id="${1:?usage: handoff-report <old-session-id>}"
+
+old=""
+for f in "$config"/projects/*/"$id"*.jsonl; do [ -e "$f" ] && old="$f"; done
+[ -n "$old" ] || { echo "handoff-report: no transcript for $id" >&2; exit 1; }
+sid="$(basename "$old" .jsonl)"
+
+# The new session is the one whose first prompt names the old one.
+new="$(grep -l "written from session $sid" "$config"/projects/*/*.jsonl 2>/dev/null | grep -v "/$sid.jsonl" | head -1 || true)"
+usage_file="$config/handoffs/$sid.usage.json"
+
+usage='[.[] | select(.type == "assistant" and (.isSidechain | not) and .message.usage)
+        | .message as $m | {id: ($m.id // ""), u: $m.usage}]
+       | unique_by(.id) | map(.u)'
+
+jq -rs --slurpfile hand <( [ -f "$usage_file" ] && cat "$usage_file" || echo null ) \
+       --slurpfile newt <( [ -n "$new" ] && jq -s . "$new" || echo '[]' ) "
+  ($usage | last) as \$last
+  | (\$last.input_tokens + (\$last.cache_read_input_tokens // 0) + (\$last.cache_creation_input_tokens // 0)) as \$ctx
+  | (\$newt[0] | $usage) as \$reqs
+  | (\$reqs | length) as \$n
+  | def sum(f): (map(f // 0) | add // 0);
+  {
+    old_final_context: \$ctx,
+    handoff_call: (\$hand[0] // \"no usage file (made before handoff-report existed)\"),
+    new_session: (if \$n == 0 then \"not found yet\" else {
+      requests: \$n,
+      cache_write: (\$reqs | sum(.cache_creation_input_tokens)),
+      cache_read: (\$reqs | sum(.cache_read_input_tokens)),
+      uncached_input: (\$reqs | sum(.input_tokens)),
+      output: (\$reqs | sum(.output_tokens))
+    } end),
+    resume_instead: (if \$n == 0 then {first_request_cache_write: \$ctx} else {
+      cache_write: ((\$reqs | sum(.cache_creation_input_tokens)) + \$ctx),
+      cache_read: ((\$reqs | sum(.cache_read_input_tokens)) + \$ctx * (\$n - 1)),
+      uncached_input: (\$reqs | sum(.input_tokens)),
+      output: (\$reqs | sum(.output_tokens))
+    } end)
+  }" "$old"
+[ -n "$new" ] && echo "new session: $(basename "$new" .jsonl)" >&2 || true

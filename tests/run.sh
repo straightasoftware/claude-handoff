@@ -53,6 +53,25 @@ expect "writes the handoff returned by the model" \
   "$(grep -qx 'STUB HANDOFF' "$scratch/config/handoffs/11111111-aaaa.md" && echo yes)"
 expect "sends the digest and edited files to the model" \
   "$(grep -q 'USER: Now add a test' "$scratch/bin/input.txt" && grep -q "$work/auth.rb" "$scratch/bin/input.txt" && echo yes)"
+expect "saves the handoff call usage" \
+  "$([ -f "$scratch/config/handoffs/11111111-aaaa.usage.json" ] && echo yes)"
+
+# Report: the old session ends at 1000 tokens of context. The new session made
+# two requests, the first split over two transcript lines (one per content
+# block, same message id), which must count once.
+old_ctx='{"type":"assistant","message":{"id":"m0","usage":{"input_tokens":0,"cache_read_input_tokens":900,"cache_creation_input_tokens":100,"output_tokens":5}}}'
+echo "$old_ctx" >> "$scratch/config/projects/a/11111111-aaaa.jsonl"
+cat > "$scratch/config/projects/a/44444444-dddd.jsonl" <<'NEW'
+{"type":"user","message":{"role":"user","content":"Continue the work described in the handoff at x (written from session 11111111-aaaa). Read it."}}
+{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"a"}],"usage":{"input_tokens":3,"cache_read_input_tokens":0,"cache_creation_input_tokens":50,"output_tokens":7}}}
+{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t","name":"Read","input":{}}],"usage":{"input_tokens":3,"cache_read_input_tokens":0,"cache_creation_input_tokens":50,"output_tokens":7}}}
+{"type":"assistant","message":{"id":"m2","content":[{"type":"text","text":"b"}],"usage":{"input_tokens":1,"cache_read_input_tokens":50,"cache_creation_input_tokens":20,"output_tokens":4}}}
+NEW
+report="$(CLAUDE_CONFIG_DIR="$scratch/config" "$PWD/../skills/handoff-from/scripts/handoff-report" 1111 2>/dev/null)"
+expect "report measures the new session, counting each request once" \
+  "$([ "$(jq -c .new_session <<<"$report")" = '{"requests":2,"cache_write":70,"cache_read":50,"uncached_input":4,"output":11}' ] && echo yes)"
+expect "report models resuming as the old context written once, then read" \
+  "$([ "$(jq -c .resume_instead <<<"$report")" = '{"cache_write":1070,"cache_read":1050,"uncached_input":4,"output":11}' ] && echo yes)"
 
 # Shell wrapper routing, in bash and in zsh when present.
 for sh in bash zsh; do
