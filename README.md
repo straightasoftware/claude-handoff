@@ -77,7 +77,7 @@ echo '. "$HOME/.claude-handoff/shell/handoff.bash"' >> ~/.zshrc
 ```
 
 This defines a `claude` shell function that handles `--handoff-from` and
-passes everything else to the real `claude` unchanged. Other flags go to the
+passes everything else to the real `claude` unchanged. `claude handoff-from <id>`, without the dashes, works too: the real `claude` would take `handoff-from` as the prompt and silently drop the ID. Other flags go to the
 new session: `claude --model opus --handoff-from <id>`.
 
 A unique prefix of the session ID is enough. Without an ID,

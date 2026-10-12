@@ -2,6 +2,19 @@
 # Checks the transcript digest filter against a fixture transcript.
 set -euo pipefail
 cd "$(dirname "$0")"
+
+# No test may reach the real claude: one that did started real sessions and
+# spent real tokens. This guard comes first on PATH; tests that need a claude
+# put their own stub ahead of it.
+guard="$(mktemp -d)"
+cat > "$guard/claude" <<'GUARD'
+#!/bin/bash
+echo "REAL-CLAUDE-CALLED $*" >&2
+exit 99
+GUARD
+chmod +x "$guard/claude"
+export PATH="$guard:$PATH"
+trap 'rm -r "$guard"' EXIT
 jq_filter=../skills/handoff-from/scripts/handoff-digest.jq
 fail=0
 
@@ -104,10 +117,14 @@ for sh in bash zsh; do
     claude --handoff-from abc; echo
     claude --model opus --handoff-from abc --effort high; echo
     claude --handoff-from --model opus; echo
-    claude --handoff-from' _ "$PWD/../shell/handoff.bash")"
+    claude --handoff-from; echo
+    claude handoff-from abc; echo
+    claude handoff-from' _ "$PWD/../shell/handoff.bash" || true)"
   expected='[--session=abc]
 [--session=abc][--model][opus][--effort][high]
 [--session=][--model][opus]
+[--session=]
+[--session=abc]
 [--session=]'
   expect "wrapper routes arguments in $sh" "$([ "$routed" = "$expected" ] && echo yes)"
 done
