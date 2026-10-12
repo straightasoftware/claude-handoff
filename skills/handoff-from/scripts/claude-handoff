@@ -4,7 +4,12 @@
 # (1 hour) re-sends the whole context at cache-write price; the digest of
 # prompts and final replies is typically 4-15% of the peak context.
 #
-#   claude-handoff <session-id> [--no-launch] [extra claude args...]
+#   claude-handoff [<session-id>] [--no-launch] [extra claude args...]
+#   claude-handoff --list [--all]
+#
+# Without an ID it lists recent sessions started in the current directory
+# (--all: anywhere) and asks which one. Transcripts survive crashes and
+# reboots, so a session can be found this way when its ID was never seen.
 #
 # Env: HANDOFF_MODEL (default sonnet) writes the handoff;
 #      HANDOFF_MAX_BYTES (default 160000, about 40k tokens) caps the digest.
@@ -15,15 +20,56 @@ config="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 model="${HANDOFF_MODEL:-sonnet}"
 max="${HANDOFF_MAX_BYTES:-160000}"
 launch=1
+list=0
+all=0
 id=""
+explicit=0
 pass=()
 for a in "$@"; do
   case "$a" in
     --no-launch) launch=0 ;;
-    *) if [ -z "$id" ]; then id="$a"; else pass+=("$a"); fi ;;
+    --list) list=1 ;;
+    --all) all=1 ;;
+    # From the shell wrapper, which knows whether the word after --handoff-from
+    # was an ID. Without it, a flag value such as "opus" in "--model opus"
+    # would be taken for the ID.
+    --session=*) id="${a#--session=}"; explicit=1 ;;
+    -*) pass+=("$a") ;;
+    *) if [ -z "$id" ] && [ "$explicit" -eq 0 ]; then id="$a"; else pass+=("$a"); fi ;;
   esac
 done
-[ -n "$id" ] || { echo "usage: claude-handoff <session-id> [--no-launch] [claude args...]" >&2; exit 2; }
+
+# Most recent sessions first, as "<id>\t<date>\t<cwd>\t<last prompt>" lines.
+# Reads only the lines it needs, so listing stays fast on large transcripts.
+recent_sessions() {
+  local f cwd when prompt n=0
+  # ls -t sorts by modification time on both macOS and Linux.
+  ls -t "$config"/projects/*/*.jsonl 2>/dev/null | while IFS= read -r f; do
+    cwd="$(grep -m1 '"cwd"' "$f" | jq -r '.cwd // empty' 2>/dev/null || true)"
+    [ "$all" -eq 1 ] || [ "$cwd" = "$PWD" ] || continue
+    when="$(date -r "$f" '+%Y-%m-%d %H:%M')"
+    prompt="$(grep '"type":"user"' "$f" | grep -v '"tool_result"' | tail -50 | jq -r '
+      select((.isMeta | not) and (.isSidechain | not)) | .message.content
+      | if type == "string" then . else ([.[]? | select(.type == "text") | .text] | join(" ")) end
+      | gsub("\\s+"; " ") | select(length > 0 and (startswith("<") | not)) | .[0:70]' 2>/dev/null | tail -1)"
+    printf '%s\t%s\t%s\t%s\n' "$(basename "$f" .jsonl)" "$when" "${cwd/#$HOME/~}" "$prompt"
+    n=$((n + 1)); [ "$n" -lt 15 ] || break
+  done
+}
+
+if [ "$list" -eq 1 ] || [ -z "$id" ]; then
+  sessions="$(recent_sessions)"
+  if [ -z "$sessions" ]; then
+    echo "claude-handoff: no sessions found$([ "$all" -eq 1 ] || echo " for $PWD (try --all)")" >&2
+    exit 1
+  fi
+  printf '%s\n' "$sessions" | awk -F'\t' '{ printf "%2d  %s  %.8s  %s\n      %s\n", NR, $2, $1, $3, $4 }' >&2
+  [ "$list" -eq 0 ] || exit 0
+  [ -t 0 ] || { echo "claude-handoff: no session ID given; use --list to see recent sessions" >&2; exit 2; }
+  read -r -p "Hand off from which session? " pick
+  id="$(printf '%s\n' "$sessions" | sed -n "${pick}p" | cut -f1)"
+  [ -n "$id" ] || { echo "claude-handoff: no session $pick" >&2; exit 1; }
+fi
 
 # Accept a unique prefix of the ID, as typed from a --resume listing.
 matches=()

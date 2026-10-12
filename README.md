@@ -75,8 +75,22 @@ This defines a `claude` shell function that handles `--handoff-from` and
 passes everything else to the real `claude` unchanged. Other flags go to the
 new session: `claude --model opus --handoff-from <id>`.
 
-A unique prefix of the session ID is enough. Session IDs are shown by
-`claude --resume` and are the file names in `~/.claude/projects/*/`.
+A unique prefix of the session ID is enough. Without an ID,
+`claude --handoff-from` lists the recent sessions started in the current
+directory, with the date and your last prompt in each, and asks which one to
+continue:
+
+```
+ 1  2026-10-12 15:04  5471f686  ~/dev
+      One other gotcha - the session ID is not easy to find if the session h
+ 2  2026-10-12 14:59  dab96dd2  ~/dev
+      After the 30 days, support is the route back. I thought we decided we
+Hand off from which session?
+```
+
+That works after a crash or a reboot too, because it reads the transcripts on
+disk rather than anything the session printed. `claude-handoff --list --all`
+lists sessions from every directory.
 
 ## Options
 
@@ -88,6 +102,10 @@ A unique prefix of the session ID is enough. Session IDs are shown by
 
 `claude-handoff <id> --no-launch` writes the handoff without starting a
 session.
+
+The listing does not print the session ID on every reply, which was the
+first idea: that costs output tokens on every turn, and the reply that would
+carry the ID is exactly what a crash loses.
 
 ## Limits
 

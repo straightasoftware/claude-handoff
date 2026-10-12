@@ -17,8 +17,17 @@ so only the handoff enters this session.
    ```
 
    It takes about a minute and prints the path of the handoff it wrote, under
-   `~/.claude/handoffs/`. If no ID was given or it matches several transcripts,
-   ask the user which session they mean.
+   `~/.claude/handoffs/`.
+
+   If no ID was given, list recent sessions started in the current directory,
+   and show the user the list to choose from:
+
+   ```bash
+   "${CLAUDE_SKILL_DIR}/scripts/claude-handoff" --list
+   ```
+
+   If that finds none, add `--all` to list sessions from every directory. If
+   an ID matches several transcripts, show the matches and ask which.
 
 2. Read the handoff file. Do not read the old transcript itself; that is the
    cost this avoids.
