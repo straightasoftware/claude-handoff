@@ -105,6 +105,8 @@ echo "claude-handoff: digest $(printf %s "$digest" | wc -c | tr -d ' ') bytes; w
 json="$(cd "${TMPDIR:-/tmp}" && printf %s "$input" | claude -p --model "$model" --tools "" \
   --strict-mcp-config --no-session-persistence --system-prompt "$system" --output-format json)"
 printf %s "$json" | jq -r '.result' > "$out"
+# Kept so handoff-report can compare the real cost with resuming.
+printf %s "$json" | jq --arg model "$model" '{model: $model, usage, total_cost_usd}' > "${out%.md}.usage.json"
 printf %s "$json" | jq -r '"claude-handoff: \(.usage.input_tokens + (.usage.cache_creation_input_tokens // 0) + (.usage.cache_read_input_tokens // 0)) input tokens, \(.usage.output_tokens) output, $\(.total_cost_usd // "?") API-equivalent"' >&2
 echo "claude-handoff: wrote $out" >&2
 
