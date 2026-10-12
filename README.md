@@ -29,10 +29,27 @@ and starts a fresh session from it:
    `~/.claude/handoffs/`.
 4. A new session starts in the old working directory and reads only the note.
 
-One measured example: a session that ended with 675k tokens of context. The
-handoff call read 43k tokens and wrote 6k, took 53 seconds, and the new
-session started from a ~1,700-word note. Across three large sessions the
-digest was 4–15% of the session's peak context.
+## What it saves
+
+Measured on one real session that had grown to 675k tokens of context on
+Opus:
+
+| | Resume | Handoff |
+|---|---|---|
+| Tokens to get going again | 675k, re-sent on Opus at cache-write price if the cache has expired | 43k read and 6k written, on Sonnet |
+| Context every later turn re-reads | 675k and growing | the ~1,700-word note plus whatever the new work adds |
+| Time | immediate | about a minute |
+
+The first row is the saving you notice. The second is usually bigger over
+time: every turn, including every tool call, re-reads the whole context. Even
+from cache that costs something on every turn, and a session that started
+small stays cheaper for as long as it runs.
+
+How big the digest is relative to the session varies with how much of the work
+happened in tool output. Across three large sessions (peak contexts of 675k
+to 898k tokens) the digest of prompts and final replies came to 4–15% of the
+peak context. These are a few measurements, not a guarantee; the
+`claude-handoff` output prints the actual token count for each run.
 
 ## Install
 
