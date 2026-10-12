@@ -2,6 +2,10 @@ name: test
 on:
   push:
   pull_request:
+# The tests only read the checkout; without this the token gets the
+# repository default, which can include write access.
+permissions:
+  contents: read
 jobs:
   digest:
     runs-on: ubuntu-latest
