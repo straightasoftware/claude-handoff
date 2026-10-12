@@ -111,8 +111,13 @@ expect "listing works with a thousand transcripts" \
   "$( (cd "$work" && CLAUDE_CONFIG_DIR="$scratch/many" "$script" --list >/dev/null 2>&1) && echo yes)"
 
 # Shell wrapper routing, in bash and in zsh when present.
+# Skipped locally when a shell is missing, but never on CI (GitHub sets CI),
+# where a skipped zsh run once went unnoticed.
 for sh in bash zsh; do
-  command -v "$sh" >/dev/null || continue
+  if ! command -v "$sh" >/dev/null; then
+    [ -z "${CI-}" ] || expect "$sh is installed for the wrapper test" no
+    continue
+  fi
   routed="$("$sh" -c '. "$1"; _claude_handoff_script=_show; _show() { printf "[%s]" "$@"; }
     claude --handoff-from abc; echo
     claude --model opus --handoff-from abc --effort high; echo
